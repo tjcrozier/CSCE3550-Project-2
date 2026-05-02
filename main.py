@@ -116,9 +116,11 @@ class MyServer(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     webServer = HTTPServer((hostName, serverPort), MyServer)
+    print("Server up")
     try:
         webServer.serve_forever()
     except KeyboardInterrupt:
         pass
+    print("Shutting down...")
 
     webServer.server_close()
