@@ -6,9 +6,28 @@ import base64
 import json
 import jwt
 import datetime
+import sqlite3
 
 hostName = "localhost"
 serverPort = 8080
+
+databaseConnection = sqlite3.connect("totally_not_my_privateKeys.db")
+cursor = databaseConnection.cursor()
+
+cursor.execute('''
+CREATE TABLE IF NOT EXISTS keys(
+    kid INTEGER PRIMARY KEY AUTOINCREMENT,
+    key BLOB NOT NULL,
+    exp INTEGER NOT NULL
+)
+''')
+
+#
+# cursor.execute('''
+#     INSERT INTO keys
+#                ()
+# ''')
+
 
 private_key = rsa.generate_private_key(
     public_exponent=65537,
