@@ -56,11 +56,11 @@ cursor.execute('''
     INSERT INTO keys
         (kid, key, exp) VALUES (?, ?, ?)''', (1, expired_pem,datetime.datetime.now(datetime.timezone.utc).timestamp() - 3600))
 
-for i in cursor.execute("SELECT kid, key FROM keys"):
-    print(i)
+# for i in cursor.execute("SELECT kid, key FROM keys"):
+#     print(i)
 # end demo nonsense
 
-numbers = private_key.private_numbers()
+# numbers = private_key.private_numbers()
 
 
 def int_to_base64(value):
@@ -136,25 +136,20 @@ class MyServer(BaseHTTPRequestHandler):
                     
             # query for expiry times later than current time
             keys = {
-                "keys": [
-                    {
-                        "alg": "RS256",
-                        "kty": "RSA",
-                        "use": "sig",
-                        "kid": "goodKID",
-                        "n": int_to_base64(numbers.public_numbers.n),
-                        "e": int_to_base64(numbers.public_numbers.e),
-                    }
-                ]
+                "keys": []
             }
 
             for i in cursor.execute('SELECT kid, key, exp FROM keys'):
                 if i[2] > currentTime:
+                    currentKeyNumbers = serialization.load_pem_private_key(i[1], password=None).private_numbers()
                     keys["keys"].append({
-                        # change to where the key is deserialized and appended
+                        # might need to change these fields later :P
+                        "alg": "RS256",
+                        "kty": "RSA",
+                        "use": "sig",
                         "kid": i[0],
-                        "key": i[1],
-                        "exp": i[2] 
+                        "n": int_to_base64(currentKeyNumbers.public_numbers.n),
+                        "e": int_to_base64(currentKeyNumbers.public_numbers.e),
                     })
             self.wfile.write(bytes(json.dumps(keys), "utf-8"))
             return
