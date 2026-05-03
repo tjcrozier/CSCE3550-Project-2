@@ -24,16 +24,6 @@ CREATE TABLE IF NOT EXISTS keys(
 )
 ''')
 
-# insert sample data (1 key expiring now, 1 expiring in an hour)
-cursor.execute(f'''
-    INSERT INTO keys VALUES
-        ({0},{3},{datetime.datetime.now(datetime.timezone.utc).timestamp() + 3600}),
-        ({1},{3},{datetime.datetime.now(datetime.timezone.utc).timestamp() - 3600})
-''')
-
-for i in cursor.execute("SELECT kid, key FROM keys"):
-    print(i)
-# end demo nonsense
 
 private_key = rsa.generate_private_key(
     public_exponent=65537,
@@ -43,6 +33,8 @@ expired_key = rsa.generate_private_key(
     public_exponent=65537,
     key_size=2048,
 )
+
+
 
 pem = private_key.private_bytes(
     encoding=serialization.Encoding.PEM,
@@ -54,6 +46,19 @@ expired_pem = expired_key.private_bytes(
     format=serialization.PrivateFormat.TraditionalOpenSSL,
     encryption_algorithm=serialization.NoEncryption()
 )
+
+# insert sample data (1 key expiring now, 1 expiring in an hour)
+cursor.execute('''
+    INSERT INTO keys
+        (kid, key, exp) VALUES (?, ?, ?)''', (0, pem,datetime.datetime.now(datetime.timezone.utc).timestamp() + 3600))
+
+cursor.execute('''
+    INSERT INTO keys
+        (kid, key, exp) VALUES (?, ?, ?)''', (1, expired_pem,datetime.datetime.now(datetime.timezone.utc).timestamp() - 3600))
+
+for i in cursor.execute("SELECT kid, key FROM keys"):
+    print(i)
+# end demo nonsense
 
 numbers = private_key.private_numbers()
 
