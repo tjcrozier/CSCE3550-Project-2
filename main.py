@@ -22,12 +22,16 @@ CREATE TABLE IF NOT EXISTS keys(
 )
 ''')
 
-#
-# cursor.execute('''
-#     INSERT INTO keys
-#                ()
-# ''')
+# insert sample data (1 key expiring now, 1 expiring in an hour)
+cursor.execute(f'''
+    INSERT INTO keys VALUES
+        ({0},{3},{datetime.datetime.now(datetime.timezone.utc).timestamp() + 3600}),
+        ({1},{3},{datetime.datetime.now(datetime.timezone.utc).timestamp() - 3600})
+''')
 
+for i in cursor.execute("SELECT kid, key FROM keys"):
+    print(i)
+# end demo nonsense
 
 private_key = rsa.generate_private_key(
     public_exponent=65537,
@@ -64,6 +68,7 @@ def int_to_base64(value):
 
 
 class MyServer(BaseHTTPRequestHandler):
+    # all of these request types just bork
     def do_PUT(self):
         self.send_response(405)
         self.end_headers()
@@ -84,6 +89,8 @@ class MyServer(BaseHTTPRequestHandler):
         self.end_headers()
         return
 
+
+    #   
     def do_POST(self):
         parsed_path = urlparse(self.path)
         params = parse_qs(parsed_path.query)
@@ -99,6 +106,8 @@ class MyServer(BaseHTTPRequestHandler):
                 headers["kid"] = "expiredKID"
                 token_payload["exp"] = datetime.datetime.utcnow() - datetime.timedelta(hours=1)
             encoded_jwt = jwt.encode(token_payload, pem, algorithm="RS256", headers=headers)
+
+
             self.send_response(200)
             self.end_headers()
             self.wfile.write(bytes(encoded_jwt, "utf-8"))
@@ -107,12 +116,18 @@ class MyServer(BaseHTTPRequestHandler):
         self.send_response(405)
         self.end_headers()
         return
-
+    
+    # Reads all valid (non-expired) private keys from the DB. 
+    # Creates a JWKS response from those private keys.
     def do_GET(self):
         if self.path == "/.well-known/jwks.json":
             self.send_response(200)
             self.send_header("Content-type", "application/json")
             self.end_headers()
+            currentTime = datetime.datetime.now(datetime.timezone.utc).timestamp()
+            
+                    
+            # query for expiry times later than current time
             keys = {
                 "keys": [
                     {
@@ -125,6 +140,14 @@ class MyServer(BaseHTTPRequestHandler):
                     }
                 ]
             }
+
+            for i in cursor.execute('SELECT kid, key, exp FROM keys'):
+                if i[2] > currentTime:
+                    keys["keys"].append({
+                        "kid": i[0],
+                        "key": i[1],
+                        "exp": i[2] 
+                    })
             self.wfile.write(bytes(json.dumps(keys), "utf-8"))
             return
 
