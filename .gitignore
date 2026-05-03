@@ -18,3 +18,6 @@ pip-selfcheck.json
 [Ll]ib64
 [Ll]ocal
 [Ss]cripts
+
+# database files
+*.db
