@@ -14,6 +14,8 @@ serverPort = 8080
 databaseConnection = sqlite3.connect("totally_not_my_privateKeys.db")
 cursor = databaseConnection.cursor()
 
+
+# serialize key to blob 
 cursor.execute('''
 CREATE TABLE IF NOT EXISTS keys(
     kid INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -144,6 +146,7 @@ class MyServer(BaseHTTPRequestHandler):
             for i in cursor.execute('SELECT kid, key, exp FROM keys'):
                 if i[2] > currentTime:
                     keys["keys"].append({
+                        # change to where the key is deserialized and appended
                         "kid": i[0],
                         "key": i[1],
                         "exp": i[2] 
