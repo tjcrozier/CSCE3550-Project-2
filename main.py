@@ -15,7 +15,6 @@ databaseConnection = sqlite3.connect("totally_not_my_privateKeys.db")
 keyDBCursor = databaseConnection.cursor()
 
 
-# serialize key to blob 
 keyDBCursor.execute('''
 CREATE TABLE IF NOT EXISTS keys(
     kid INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -47,12 +46,14 @@ expired_pem = expired_key.private_bytes(
     encryption_algorithm=serialization.NoEncryption()
 )
 
-# insert sample data (1 key expiring now, 1 expiring in an hour)
+currentTime = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
+
+# insert sample data (1 key expired an hour ago, 1 expiring in an hour)
 keyDBCursor.execute('''
-    INSERT INTO keys (key, exp) VALUES (?1, ?2)''', (pem, int(datetime.datetime.now(datetime.timezone.utc).timestamp()) + 3600))
+    INSERT INTO keys (key, exp) VALUES (?1, ?2)''', (pem, currentTime + 3600))
 
 keyDBCursor.execute('''
-    INSERT INTO keys (key, exp) VALUES (@key, @expire_time)''', (expired_pem, int(datetime.datetime.now(datetime.timezone.utc).timestamp()) - 3600))
+    INSERT INTO keys (key, exp) VALUES (@key, @expire_time)''', (expired_pem, currentTime - 3600))
 
 
 
@@ -122,16 +123,14 @@ class MyServer(BaseHTTPRequestHandler):
             key = None
             
             if 'expired' in params:
-                expiredKeyRecord = keyDBCursor.execute(' SELECT * FROM keys WHERE exp < ?',
-                                             (int(datetime.datetime.now(datetime.timezone.utc).timestamp()),)).fetchone()
+                expiredKeyRecord = selectKeyRecord(expired=True)
 
                 print("Serving expired key")
                 headers["kid"] = str(expiredKeyRecord[0])
                 token_payload["exp"] = expiredKeyRecord[2]
                 key = expiredKeyRecord[1]
             else:
-                goodKeyRecord = keyDBCursor.execute('SELECT * FROM keys WHERE exp > ?', 
-                                               (int(datetime.datetime.now(datetime.timezone.utc).timestamp()),)).fetchone()
+                goodKeyRecord = selectKeyRecord()
                 # Serving good key
                 headers["kid"] = str(goodKeyRecord[0])
                 token_payload["exp"] = goodKeyRecord[2]
@@ -167,11 +166,10 @@ class MyServer(BaseHTTPRequestHandler):
                 "keys": []
             }
 
-            for i in keyDBCursor.execute('SELECT kid, key, exp FROM keys'):
+            for i in keyDBCursor.execute('SELECT * FROM keys'):
                 if int(i[2]) > currentTime:
                     currentKeyNumbers = serialization.load_pem_private_key(i[1], password=None).private_numbers()
                     keys["keys"].append({
-                        # might need to change these fields later :P
                         "alg": "RS256",
                         "kty": "RSA",
                         "use": "sig",
