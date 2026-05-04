@@ -12,11 +12,11 @@ hostName = "localhost"
 serverPort = 8080
 
 databaseConnection = sqlite3.connect("totally_not_my_privateKeys.db")
-cursor = databaseConnection.cursor()
+keyDBCursor = databaseConnection.cursor()
 
 
 # serialize key to blob 
-cursor.execute('''
+keyDBCursor.execute('''
 CREATE TABLE IF NOT EXISTS keys(
     kid INTEGER PRIMARY KEY AUTOINCREMENT,
     key BLOB NOT NULL,
@@ -48,19 +48,15 @@ expired_pem = expired_key.private_bytes(
 )
 
 # insert sample data (1 key expiring now, 1 expiring in an hour)
-cursor.execute('''
-    INSERT INTO keys
-        (kid, key, exp) VALUES (?, ?, ?)''', (0, pem,datetime.datetime.now(datetime.timezone.utc).timestamp() + 3600))
+keyDBCursor.execute('''
+    INSERT INTO keys (key, exp) VALUES (?1, ?2)''', (pem, int(datetime.datetime.now(datetime.timezone.utc).timestamp()) + 3600))
 
-cursor.execute('''
-    INSERT INTO keys
-        (kid, key, exp) VALUES (?, ?, ?)''', (1, expired_pem,datetime.datetime.now(datetime.timezone.utc).timestamp() - 3600))
+keyDBCursor.execute('''
+    INSERT INTO keys (key, exp) VALUES (@key, @expire_time)''', (expired_pem, int(datetime.datetime.now(datetime.timezone.utc).timestamp()) - 3600))
 
-# for i in cursor.execute("SELECT kid, key FROM keys"):
-#     print(i)
-# end demo nonsense
 
-# numbers = private_key.private_numbers()
+
+numbers = private_key.private_numbers()
 
 
 def int_to_base64(value):
@@ -72,6 +68,17 @@ def int_to_base64(value):
     value_bytes = bytes.fromhex(value_hex)
     encoded = base64.urlsafe_b64encode(value_bytes).rstrip(b'=')
     return encoded.decode('utf-8')
+
+def selectKeyRecord(cursor, expired=False):
+    if expired: 
+        return cursor.execute(' SELECT * FROM keys WHERE exp < ?',
+                                             (int(datetime.datetime.now(datetime.timezone.utc).timestamp()),)).fetchone()
+    else:
+        return cursor.execute(' SELECT * FROM keys WHERE exp > ?',
+                                             (int(datetime.datetime.now(datetime.timezone.utc).timestamp()),)).fetchone()
+        
+
+        
 
 
 class MyServer(BaseHTTPRequestHandler):
@@ -100,7 +107,9 @@ class MyServer(BaseHTTPRequestHandler):
     #   
     def do_POST(self):
         parsed_path = urlparse(self.path)
+        
         params = parse_qs(parsed_path.query)
+
         if parsed_path.path == "/auth":
             headers = {
                 "kid": "goodKID"
@@ -109,10 +118,29 @@ class MyServer(BaseHTTPRequestHandler):
                 "user": "username",
                 "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=1)
             }
+
+            key = None
+            
             if 'expired' in params:
-                headers["kid"] = "expiredKID"
-                token_payload["exp"] = datetime.datetime.utcnow() - datetime.timedelta(hours=1)
-            encoded_jwt = jwt.encode(token_payload, pem, algorithm="RS256", headers=headers)
+                expiredKeyRecord = keyDBCursor.execute(' SELECT * FROM keys WHERE exp < ?',
+                                             (int(datetime.datetime.now(datetime.timezone.utc).timestamp()),)).fetchone()
+
+                print("Serving expired key")
+                headers["kid"] = str(expiredKeyRecord[0])
+                token_payload["exp"] = expiredKeyRecord[2]
+                key = expiredKeyRecord[1]
+            else:
+                goodKeyRecord = keyDBCursor.execute('SELECT * FROM keys WHERE exp > ?', 
+                                               (int(datetime.datetime.now(datetime.timezone.utc).timestamp()),)).fetchone()
+                # Serving good key
+                headers["kid"] = str(goodKeyRecord[0])
+                token_payload["exp"] = goodKeyRecord[2]
+                key = goodKeyRecord[1]
+
+        
+
+
+            encoded_jwt = jwt.encode(token_payload, key, algorithm="RS256", headers=headers)
 
 
             self.send_response(200)
@@ -131,7 +159,7 @@ class MyServer(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-type", "application/json")
             self.end_headers()
-            currentTime = datetime.datetime.now(datetime.timezone.utc).timestamp()
+            currentTime = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
             
                     
             # query for expiry times later than current time
@@ -139,15 +167,15 @@ class MyServer(BaseHTTPRequestHandler):
                 "keys": []
             }
 
-            for i in cursor.execute('SELECT kid, key, exp FROM keys'):
-                if i[2] > currentTime:
+            for i in keyDBCursor.execute('SELECT kid, key, exp FROM keys'):
+                if int(i[2]) > currentTime:
                     currentKeyNumbers = serialization.load_pem_private_key(i[1], password=None).private_numbers()
                     keys["keys"].append({
                         # might need to change these fields later :P
                         "alg": "RS256",
                         "kty": "RSA",
                         "use": "sig",
-                        "kid": i[0],
+                        "kid": str(i[0]),
                         "n": int_to_base64(currentKeyNumbers.public_numbers.n),
                         "e": int_to_base64(currentKeyNumbers.public_numbers.e),
                     })
@@ -167,5 +195,7 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         pass
     print("Shutting down...")
+
+    databaseConnection.close()
 
     webServer.server_close()
